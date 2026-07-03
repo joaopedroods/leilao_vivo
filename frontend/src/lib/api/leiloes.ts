@@ -25,11 +25,14 @@ export const getAuctions = async (): Promise<Auction[]> => {
   }
 };
 
-// Deixe a função criarLeilao aqui abaixo, mas com a rota compatível com a Home
 export const criarLeilao = async (dados: { title: string; description: string; initialBid: number; duracaoMinutos: number; }) => {
-  const response = await fetch(`${API_URL}/leiloes`, {
+  // Tente o MESMO caminho que você usa na getAuctions
+  const response = await fetch(`${API_URL}/leiloes/leiloes`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem("leilaovivo_token")}` },
+    headers: { 
+      "Content-Type": "application/json", 
+      "Authorization": `Bearer ${localStorage.getItem("leilaovivo_token")}` 
+    },
     body: JSON.stringify({
       titulo: dados.title,
       descricao: dados.description,
@@ -37,6 +40,10 @@ export const criarLeilao = async (dados: { title: string; description: string; i
       duracao_minutos: dados.duracaoMinutos,
     }),
   });
-  if (!response.ok) throw new Error("Erro ao criar leilão");
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.mensagem || "Erro ao criar leilão");
+  }
   return response.json();
 };
