@@ -1,6 +1,19 @@
 version: "3.9"
 
 services:
+  postgres-leiloes:
+    image: postgres:16
+    container_name: leilaovivo-postgres-leiloes
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: leiloes_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_leiloes_data:/var/lib/postgresql/data
+
   postgres-carteira:
     image: postgres:16
     container_name: leilaovivo-postgres-carteira
@@ -10,7 +23,7 @@ services:
       POSTGRES_PASSWORD: leilaovivo
       POSTGRES_DB: contas_carteira
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pg_carteira_data:/var/lib/postgresql/data
 
@@ -23,9 +36,16 @@ services:
       POSTGRES_PASSWORD: leilaovivo
       POSTGRES_DB: notificacoes
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - pg_notificacoes_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: leilaovivo-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -35,13 +55,7 @@ services:
       - "5672:5672"
       - "15672:15672"
 
-  redis:
-    image: redis:7
-    container_name: leilaovivo-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-
 volumes:
+  pg_leiloes_data:
   pg_carteira_data:
   pg_notificacoes_data:
