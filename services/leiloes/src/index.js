@@ -25,6 +25,9 @@ app.use('/leiloes', leiloesRoutes)
 const leilaoSocket = require('./socket/leilaoSocket')
 leilaoSocket(io)
 
+const { setIO } = require('./controllers/leilaoController')
+setIO(io)
+
 pool.query('SELECT NOW()', (err, res) => {
   if (err) console.error('Erro ao conectar no banco:', err)
   else console.log('Banco conectado:', res.rows[0].now)
@@ -35,14 +38,13 @@ server.listen(PORT, async () => {
   console.log(`Serviço de Leilões rodando na porta ${PORT}`)
   await conectarRabbitMQ()
 
-  // Reagenda leilões ativos ao reiniciar o servidor
   const { agendarEncerramento } = require('./jobs/encerrador')
   const leiloes = await pool.query(
     `SELECT * FROM leiloes WHERE status = 'ativo' AND encerra_em > NOW()`
   )
   leiloes.rows.forEach(l => agendarEncerramento(l, io))
   console.log(`${leiloes.rows.length} leilão(ões) reagendado(s)`)
-})
 
-const { setIO } = require('./controllers/leilaoController')
-setIO(io)
+  const { iniciarReconciliador } = require('./jobs/reconciliador')
+  iniciarReconciliador(io)
+})
