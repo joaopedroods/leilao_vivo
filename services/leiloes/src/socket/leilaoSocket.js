@@ -5,6 +5,7 @@ const axios = require('axios')
 require('dotenv').config()
 
 const carteiraEnabled = process.env.CARTEIRA_ENABLED === 'true'
+const serviceHeaders = () => ({ 'x-service-key': process.env.SERVICE_KEY })
 
 module.exports = function leilaoSocket(io) {
   io.use((socket, next) => {
@@ -81,11 +82,11 @@ module.exports = function leilaoSocket(io) {
         let bloqueioId = null
         if (carteiraEnabled) {
           try {
-            const resposta = await axios.post(`${process.env.CARTEIRA_URL}/carteira/bloquear`, {
-              userId,
-              valor,
-              leilaoId
-            })
+            const resposta = await axios.post(
+              `${process.env.CARTEIRA_URL}/carteira/bloquear`,
+              { userId, valor, leilaoId },
+              { headers: serviceHeaders() }
+            )
             bloqueioId = resposta.data.bloqueioId
           } catch (err) {
             if (err.response?.data?.erro === 'saldo_insuficiente') {
@@ -107,9 +108,12 @@ module.exports = function leilaoSocket(io) {
         )
 
         if (update.rowCount === 0) {
-          // Desfaz o bloqueio se o lock falhou
           if (carteiraEnabled && bloqueioId) {
-            await axios.post(`${process.env.CARTEIRA_URL}/carteira/liberar`, { bloqueioId })
+            await axios.post(
+              `${process.env.CARTEIRA_URL}/carteira/liberar`,
+              { bloqueioId },
+              { headers: serviceHeaders() }
+            )
           }
           socket.emit('lance_rejeitado', { motivo: 'race_condition' })
           return
@@ -130,9 +134,11 @@ module.exports = function leilaoSocket(io) {
             const bloqueioAnterior = await redis.get(`bloqueio:${leilaoId}:${exLider}`)
             if (bloqueioAnterior) {
               try {
-                await axios.post(`${process.env.CARTEIRA_URL}/carteira/liberar`, {
-                  bloqueioId: bloqueioAnterior
-                })
+                await axios.post(
+                  `${process.env.CARTEIRA_URL}/carteira/liberar`,
+                  { bloqueioId: bloqueioAnterior },
+                  { headers: serviceHeaders() }
+                )
               } catch (err) {
                 console.error('Erro ao liberar bloqueio do ex-líder:', err.message)
               }

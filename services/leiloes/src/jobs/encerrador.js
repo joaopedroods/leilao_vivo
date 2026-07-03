@@ -4,9 +4,10 @@ const { publicar } = require('../config/rabbitmq')
 const axios = require('axios')
 require('dotenv').config()
 
+const serviceHeaders = () => ({ 'x-service-key': process.env.SERVICE_KEY })
+
 async function encerrarLeilao(leilaoId, io) {
   try {
-    // Marca como "encerrando" (estado intermediário da Saga)
     const result = await pool.query(
       `UPDATE leiloes SET status = 'encerrando'
        WHERE id = $1 AND status = 'ativo'
@@ -14,31 +15,28 @@ async function encerrarLeilao(leilaoId, io) {
       [leilaoId]
     )
 
-    if (result.rowCount === 0) return // já foi encerrado ou não existe
+    if (result.rowCount === 0) return
 
     const leilao = result.rows[0]
     const temVencedor = leilao.vencedor_id !== null
 
     if (temVencedor) {
-      // Busca o bloqueioId do vencedor no Redis
       const bloqueioId = await redis.get(`bloqueio:${leilaoId}:${leilao.vencedor_id}`)
 
       try {
-        // Debita o vencedor
-        await axios.post(`${process.env.CARTEIRA_URL}/carteira/debitar`, {
-          bloqueioId
-        })
+        await axios.post(
+          `${process.env.CARTEIRA_URL}/carteira/debitar`,
+          { bloqueioId },
+          { headers: serviceHeaders() }
+        )
 
-        // Libera os bloqueios dos perdedores
         await liberarPerdedores(leilaoId, leilao.vencedor_id)
 
-        // Marca como encerrado
         await pool.query(
           `UPDATE leiloes SET status = 'encerrado' WHERE id = $1`,
           [leilaoId]
         )
 
-        // Publica evento de encerramento
         await publicar({
           evento: 'leilao_encerrado',
           vencedorId: leilao.vencedor_id,
@@ -49,7 +47,6 @@ async function encerrarLeilao(leilaoId, io) {
         })
 
       } catch (err) {
-        // Saga de compensação: debitar falhou
         console.error('Falha ao debitar vencedor, executando compensação:', err.message)
 
         await liberarTodos(leilaoId)
@@ -68,7 +65,6 @@ async function encerrarLeilao(leilaoId, io) {
       }
 
     } else {
-      // Nenhum lance — encerra sem vencedor
       await pool.query(
         `UPDATE leiloes SET status = 'encerrado' WHERE id = $1`,
         [leilaoId]
@@ -82,7 +78,6 @@ async function encerrarLeilao(leilaoId, io) {
       })
     }
 
-    // Atualiza Redis e notifica clientes
     await redis.del(`leilao:${leilaoId}`)
     io.to(`leilao:${leilaoId}`).emit('leilao_encerrado', {
       leilaoId,
@@ -107,7 +102,11 @@ async function liberarPerdedores(leilaoId, vencedorId) {
   for (const row of perdedores.rows) {
     const bloqueioId = await redis.get(`bloqueio:${leilaoId}:${row.usuario_id}`)
     if (bloqueioId) {
-      await axios.post(`${process.env.CARTEIRA_URL}/carteira/liberar`, { bloqueioId })
+      await axios.post(
+        `${process.env.CARTEIRA_URL}/carteira/liberar`,
+        { bloqueioId },
+        { headers: serviceHeaders() }
+      )
     }
   }
 }
@@ -121,7 +120,11 @@ async function liberarTodos(leilaoId) {
   for (const row of participantes.rows) {
     const bloqueioId = await redis.get(`bloqueio:${leilaoId}:${row.usuario_id}`)
     if (bloqueioId) {
-      await axios.post(`${process.env.CARTEIRA_URL}/carteira/liberar`, { bloqueioId })
+      await axios.post(
+        `${process.env.CARTEIRA_URL}/carteira/liberar`,
+        { bloqueioId },
+        { headers: serviceHeaders() }
+      )
     }
   }
 }
