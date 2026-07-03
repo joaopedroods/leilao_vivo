@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Teste WebSocket</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <h2>Teste WebSocket — LeilãoVivo</h2>
+  <div id="log" style="font-family: monospace; white-space: pre;"></div>
+
+  <script>
+    // Cola o token gerado pelo gerar-token.js
+    const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCJpYXQiOjE3ODMwMzY1MTMsImV4cCI6MTc4MzEyMjkxM30.CUVLm9sqVCG2xKIDXfQhA3plh1eOk_d4gqRLOP3A1Ec'
+
+    // Cola o id do leilão criado no POST
+    const LEILAO_ID = '08d1a892-68cc-424b-99ce-268a22ae8ebf'
+
+    const log = (msg) => {
+      document.getElementById('log').textContent += '\n' + JSON.stringify(msg, null, 2)
+    }
+
+    const socket = io('http://localhost:3001', {
+      auth: { token: TOKEN }
+    })
+
+    socket.on('connect', () => {
+      log({ evento: 'conectado', id: socket.id })
+      socket.emit('entrar_leilao', LEILAO_ID)
+    })
+
+    socket.on('estado_atual', (estado) => log({ evento: 'estado_atual', ...estado }))
+    socket.on('lance_aceito', (dados) => log({ evento: 'lance_aceito', ...dados }))
+    socket.on('lance_rejeitado', (dados) => log({ evento: 'lance_rejeitado', ...dados }))
+    socket.on('erro', (dados) => log({ evento: 'erro', ...dados }))
+
+    // Dar um lance após 2 segundos
+    setTimeout(() => {
+      log({ evento: 'enviando_lance', valor: 250 })
+      socket.emit('dar_lance', { leilaoId: LEILAO_ID, valor: 250 })
+    }, 2000)
+  </script>
+</body>
+</html>

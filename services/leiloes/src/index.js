@@ -18,12 +18,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', servico: 'leiloes' })
 })
 
-io.on('connection', (socket) => {
-  console.log('cliente conectado:', socket.id)
-  socket.on('disconnect', () => {
-    console.log('cliente desconectado:', socket.id)
-  })
-})
+const leilaoSocket = require('./socket/leilaoSocket')
+leilaoSocket(io)
 
 pool.query('SELECT NOW()', (err, res) => {
   if (err) console.error('Erro ao conectar no banco:', err)
