@@ -4,7 +4,7 @@ const pool = require('../db/pool');
 
 function gerarToken(userId) {
   return jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+    expiresIn: '7d',
   });
 }
 

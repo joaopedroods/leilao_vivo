@@ -73,6 +73,65 @@ async function depositar(req, res) {
   }
 }
 
+// NOVA FUNÇÃO DE SAQUE ADICIONADA AQUI
+async function sacar(req, res) {
+  const { userId } = req;
+  const { valor } = req.body;
+
+  if (!valor || Number(valor) <= 0) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Valor inválido para saque.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // FOR UPDATE bloqueia a linha temporariamente para evitar concorrência (duplo saque)
+    const carteiraResult = await client.query(
+      'SELECT saldo_disponivel FROM carteiras WHERE user_id = $1 FOR UPDATE',
+      [userId]
+    );
+    const carteira = carteiraResult.rows[0];
+
+    if (!carteira) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ erro: 'usuario_nao_encontrado', mensagem: 'Carteira não encontrada.' });
+    }
+
+    // A TRAVA DE SEGURANÇA
+    if (Number(carteira.saldo_disponivel) < Number(valor)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ erro: 'saldo_insuficiente', mensagem: 'Saldo insuficiente. Você não tem todo esse dinheiro!' });
+    }
+
+    // Debita o valor do saldo disponível
+    const atualizado = await client.query(
+      `UPDATE carteiras SET saldo_disponivel = saldo_disponivel - $1
+       WHERE user_id = $2 RETURNING saldo_disponivel`,
+      [valor, userId]
+    );
+
+    // Registra a transação de saque
+    await client.query(
+      `INSERT INTO transacoes (user_id, tipo, valor, descricao) VALUES ($1, 'saque', $2, $3)`,
+      [userId, valor, 'Saque realizado']
+    );
+
+    await client.query('COMMIT');
+
+    return res.status(200).json({
+      saldoDisponivel: Number(atualizado.rows[0].saldo_disponivel),
+      mensagem: 'Saque realizado com sucesso!'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[carteiraController.sacar] erro:', err.message);
+    return res.status(500).json({ erro: 'erro_interno', mensagem: 'Erro interno no servidor ao processar saque.' });
+  } finally {
+    client.release();
+  }
+}
+
 async function bloquear(req, res) {
   const { userId, valor, leilaoId } = req.body;
 
@@ -256,4 +315,4 @@ async function debitar(req, res) {
   }
 }
 
-module.exports = { extrato, depositar, bloquear, liberar, debitar };
+module.exports = { extrato, depositar, sacar, bloquear, liberar, debitar };
