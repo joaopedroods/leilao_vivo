@@ -2,7 +2,10 @@ import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Navbar } from "@/components/navbar";
-import { auctions, formatBRL } from "@/lib/mock-data";
+// Importamos apenas o tipo Auction e o formatador de moeda do mock-data
+import { formatBRL, type Auction } from "@/lib/mock-data"; 
+// Importamos o nosso novo serviço que se comunica com o backend
+import { getAuctions } from "@/lib/api/leiloes"; 
 
 const TABS = ["Todos", "Ativos", "Encerrados"] as const;
 
@@ -10,14 +13,34 @@ export default function HomePage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Todos");
   const [q, setQ] = useState("");
 
+  // 1. Novos estados para gerenciar os dados da API real
+  const [realAuctions, setRealAuctions] = useState<Auction[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // 2. Efeito para buscar os dados no Node.js via API Gateway quando a página monta
+  useEffect(() => {
+    getAuctions()
+      .then((data) => {
+        setRealAuctions(data);
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError("Não foi possível conectar ao serviço de leilões.");
+        setIsLoading(false);
+      });
+  }, []);
+
+  // 3. O filtro agora observa 'realAuctions' em vez da constante mockada
   const filtered = useMemo(() => {
-    return auctions.filter((a) => {
+    return realAuctions.filter((a) => {
       if (tab === "Ativos" && a.status !== "ativo") return false;
       if (tab === "Encerrados" && a.status !== "encerrado") return false;
       if (q && !a.title.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
     });
-  }, [tab, q]);
+  }, [tab, q, realAuctions]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -57,17 +80,40 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((a) => (
-            <AuctionCard key={a.id} auction={a} />
-          ))}
-        </div>
+        {/* 4. Tratamento visual de Carregamento e Erro */}
+        {isLoading && (
+          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+            Buscando leilões ao vivo no servidor...
+          </div>
+        )}
+
+        {error && (
+          <div className="flex h-40 items-center justify-center text-sm text-red-500">
+            {error}
+          </div>
+        )}
+
+        {/* 5. Renderização da lista real */}
+        {!isLoading && !error && (
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {filtered.length === 0 ? (
+              <div className="col-span-full flex h-40 items-center justify-center text-sm text-muted-foreground">
+                Nenhum leilão encontrado.
+              </div>
+            ) : (
+              filtered.map((a) => (
+                <AuctionCard key={a.id} auction={a} />
+              ))
+            )}
+          </div>
+        )}
       </main>
     </div>
   );
 }
 
-function AuctionCard({ auction }: { auction: (typeof auctions)[number] }) {
+// 6. Atualizamos a tipagem do parâmetro auction para usar o type limpo
+function AuctionCard({ auction }: { auction: Auction }) {
   const remaining = useCountdown(auction.endsAt);
   const isEnded = auction.status === "encerrado" || remaining.totalMs <= 0;
   const isUrgent = !isEnded && remaining.totalMs < 5 * 60 * 1000;
@@ -93,7 +139,7 @@ function AuctionCard({ auction }: { auction: (typeof auctions)[number] }) {
           {isEnded ? (
             <span className="text-muted-foreground">Leilão finalizado</span>
           ) : (
-            <span className={isUrgent ? "text-danger" : "text-success"}>
+            <span className={isUrgent ? "text-red-500" : "text-green-600"}>
               {remaining.label} restantes
             </span>
           )}

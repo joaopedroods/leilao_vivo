@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { Navbar } from "@/components/navbar";
-import { myAuctions, formatBRL } from "@/lib/mock-data";
+import { myAuctions, formatBRL } from "@/lib/mock-data"; 
 import { Upload } from "lucide-react";
+import { criarLeilao } from "@/lib/api/leiloes"; 
 
 export default function VenderPage() {
   const [tab, setTab] = useState<"meus" | "criar">("meus");
+  
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -18,7 +20,7 @@ export default function VenderPage() {
           <TabBtn active={tab === "criar"} onClick={() => setTab("criar")}>Criar Leilão</TabBtn>
         </div>
 
-        {tab === "meus" ? <MeusLeiloes /> : <CriarLeilao />}
+        {tab === "meus" ? <MeusLeiloes /> : <CriarLeilao onCriadoSucesso={() => setTab("meus")} />}
       </main>
     </div>
   );
@@ -78,49 +80,111 @@ function MeusLeiloes() {
   );
 }
 
-function CriarLeilao() {
+function CriarLeilao({ onCriadoSucesso }: { onCriadoSucesso: () => void }) {
+  const [titulo, setTitulo] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [lanceMinimo, setLanceMinimo] = useState("");
+  const [duracaoMinutos, setDuracaoMinutos] = useState("15"); 
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!titulo || !descricao || !lanceMinimo) return alert("Preencha todos os campos obrigatórios.");
+    
+    setLoading(true);
+
+    try {
+      // Disparando para a API com os minutos exatos que o usuário escolheu no select
+      await criarLeilao({
+        title: titulo,
+        description: descricao,
+        initialBid: Number(lanceMinimo),
+        duracaoMinutos: Number(duracaoMinutos), 
+      });
+
+      alert("Leilão criado com sucesso!");
+      onCriadoSucesso(); // Muda a aba automaticamente para "Meus Leilões"
+      
+      // Limpa o formulário
+      setTitulo("");
+      setDescricao("");
+      setLanceMinimo("");
+      setDuracaoMinutos("15");
+
+    } catch (error: any) {
+      alert("Erro ao criar: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <form
-      onSubmit={(e) => e.preventDefault()}
+      onSubmit={handleSubmit}
       className="mt-6 grid grid-cols-1 gap-5 rounded-lg border border-border bg-card p-6"
     >
-      <Field label="Nome do item" placeholder="Ex: iPhone 15 Pro 256GB" />
+      <Field 
+        label="Nome do item" 
+        placeholder="Ex: iPhone 15 Pro 256GB" 
+        value={titulo}
+        onChange={(e) => setTitulo(e.target.value)}
+        required
+      />
       <div>
         <label className="mb-1.5 block text-sm font-medium text-foreground">Descrição</label>
         <textarea
           rows={4}
+          value={descricao}
+          onChange={(e) => setDescricao(e.target.value)}
+          required
           placeholder="Descreva o item, estado de conservação, acessórios..."
           className="w-full rounded-md border border-border bg-background p-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-foreground">Foto do item</label>
-        <div className="flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-muted/30 px-6 py-10 text-center">
+        <label className="mb-1.5 block text-sm font-medium text-foreground">Foto do item (Em breve)</label>
+        <div className="flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-muted/30 px-6 py-10 text-center opacity-60">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-soft text-primary">
             <Upload className="h-5 w-5" />
           </div>
-          <div className="text-sm font-medium text-foreground">Arraste uma imagem ou clique para enviar</div>
-          <div className="text-xs text-muted-foreground">PNG ou JPG até 5MB</div>
+          <div className="text-sm font-medium text-foreground">Upload de fotos desativado nessa versão</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <Field label="Lance mínimo (R$)" type="number" placeholder="100" />
+        <Field 
+          label="Lance mínimo (R$)" 
+          type="number" 
+          placeholder="100" 
+          min="1"
+          step="0.01"
+          value={lanceMinimo}
+          onChange={(e) => setLanceMinimo(e.target.value)}
+          required
+        />
         <div>
           <label className="mb-1.5 block text-sm font-medium text-foreground">Duração</label>
-          <select className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-            <option>15 minutos</option>
-            <option>30 minutos</option>
-            <option>1 hora</option>
-            <option>6 horas</option>
-            <option>24 horas</option>
+          <select 
+            value={duracaoMinutos}
+            onChange={(e) => setDuracaoMinutos(e.target.value)}
+            className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="15">15 minutos</option>
+            <option value="30">30 minutos</option>
+            <option value="60">1 hora</option>
+            <option value="360">6 horas</option>
+            <option value="1440">24 horas</option>
           </select>
         </div>
       </div>
 
-      <button className="mt-2 h-11 w-full rounded-md bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:w-auto sm:self-start sm:px-8">
-        Publicar Leilão
+      <button 
+        type="submit" 
+        disabled={loading}
+        className="mt-2 h-11 w-full rounded-md bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:w-auto sm:self-start sm:px-8 disabled:opacity-50"
+      >
+        {loading ? "Publicando..." : "Publicar Leilão"}
       </button>
     </form>
   );
