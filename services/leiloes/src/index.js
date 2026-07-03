@@ -6,6 +6,7 @@ require('dotenv').config()
 
 const pool = require('./config/db')
 const redis = require('./config/redis')
+const { conectar: conectarRabbitMQ } = require('./config/rabbitmq')
 
 const app = express()
 const server = http.createServer(app)
@@ -18,6 +19,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', servico: 'leiloes' })
 })
 
+const leiloesRoutes = require('./routes/leiloes')
+app.use('/leiloes', leiloesRoutes)
+
 const leilaoSocket = require('./socket/leilaoSocket')
 leilaoSocket(io)
 
@@ -27,8 +31,18 @@ pool.query('SELECT NOW()', (err, res) => {
 })
 
 const PORT = process.env.PORT || 3001
-const leiloesRoutes = require('./routes/leiloes')
-app.use('/leiloes', leiloesRoutes)
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Serviço de Leilões rodando na porta ${PORT}`)
+  await conectarRabbitMQ()
+
+  // Reagenda leilões ativos ao reiniciar o servidor
+  const { agendarEncerramento } = require('./jobs/encerrador')
+  const leiloes = await pool.query(
+    `SELECT * FROM leiloes WHERE status = 'ativo' AND encerra_em > NOW()`
+  )
+  leiloes.rows.forEach(l => agendarEncerramento(l, io))
+  console.log(`${leiloes.rows.length} leilão(ões) reagendado(s)`)
 })
+
+const { setIO } = require('./controllers/leilaoController')
+setIO(io)

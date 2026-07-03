@@ -1,3 +1,6 @@
+let _io = null
+function setIO(io) { _io = io }
+
 const pool = require('../config/db')
 
 async function listarLeiloes(req, res) {
@@ -62,6 +65,9 @@ async function criarLeilao(req, res) {
       [vendedor_id, titulo, descricao, lance_minimo, encerra_em]
     )
 
+    const { agendarEncerramento } = require('../jobs/encerrador')
+    agendarEncerramento(result.rows[0], _io)
+
     res.status(201).json(result.rows[0])
   } catch (err) {
     console.error(err)
@@ -69,4 +75,4 @@ async function criarLeilao(req, res) {
   }
 }
 
-module.exports = { listarLeiloes, buscarLeilao, criarLeilao }
+module.exports = { listarLeiloes, buscarLeilao, criarLeilao, setIO }
