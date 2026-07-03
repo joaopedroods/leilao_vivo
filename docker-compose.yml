@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  postgres-carteira:
+    image: postgres:16
+    container_name: leilaovivo-postgres-carteira
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: leilaovivo
+      POSTGRES_PASSWORD: leilaovivo
+      POSTGRES_DB: contas_carteira
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_carteira_data:/var/lib/postgresql/data
+
+  postgres-notificacoes:
+    image: postgres:16
+    container_name: leilaovivo-postgres-notificacoes
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: leilaovivo
+      POSTGRES_PASSWORD: leilaovivo
+      POSTGRES_DB: notificacoes
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_notificacoes_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: leilaovivo-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  redis:
+    image: redis:7
+    container_name: leilaovivo-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  pg_carteira_data:
+  pg_notificacoes_data:
