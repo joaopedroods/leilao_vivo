@@ -1,10 +1,12 @@
 const redis = require('../config/redis')
 const pool = require('../config/db')
 const jwt = require('jsonwebtoken')
+const axios = require('axios')
 require('dotenv').config()
 
-module.exports = function leilaoSocket(io) {
+const carteiraEnabled = process.env.CARTEIRA_ENABLED === 'true'
 
+module.exports = function leilaoSocket(io) {
   io.use((socket, next) => {
     const token = socket.handshake.auth.token
     if (!token) return next(new Error('token_ausente'))
@@ -20,11 +22,9 @@ module.exports = function leilaoSocket(io) {
   io.on('connection', (socket) => {
     console.log('cliente conectado:', socket.id)
 
-    // Entrar num leilão
     socket.on('entrar_leilao', async (leilaoId) => {
       socket.join(`leilao:${leilaoId}`)
 
-      // Busca estado atual do Redis ou do banco
       let estado = await redis.get(`leilao:${leilaoId}`)
       if (estado) {
         estado = JSON.parse(estado)
@@ -51,12 +51,10 @@ module.exports = function leilaoSocket(io) {
       socket.emit('estado_atual', estado)
     })
 
-    // Receber lance
     socket.on('dar_lance', async ({ leilaoId, valor }) => {
       const userId = socket.userId
 
       try {
-        // Busca o estado atual do banco (fonte da verdade)
         const result = await pool.query(
           'SELECT * FROM leiloes WHERE id = $1',
           [leilaoId]
@@ -79,6 +77,26 @@ module.exports = function leilaoSocket(io) {
           return
         }
 
+        // Bloqueia saldo na Carteira (se habilitado)
+        let bloqueioId = null
+        if (carteiraEnabled) {
+          try {
+            const resposta = await axios.post(`${process.env.CARTEIRA_URL}/carteira/bloquear`, {
+              userId,
+              valor,
+              leilaoId
+            })
+            bloqueioId = resposta.data.bloqueioId
+          } catch (err) {
+            if (err.response?.data?.erro === 'saldo_insuficiente') {
+              socket.emit('lance_rejeitado', { motivo: 'saldo_insuficiente' })
+            } else {
+              socket.emit('erro', { mensagem: 'erro_ao_bloquear_saldo' })
+            }
+            return
+          }
+        }
+
         // Optimistic locking
         const update = await pool.query(
           `UPDATE leiloes
@@ -89,6 +107,10 @@ module.exports = function leilaoSocket(io) {
         )
 
         if (update.rowCount === 0) {
+          // Desfaz o bloqueio se o lock falhou
+          if (carteiraEnabled && bloqueioId) {
+            await axios.post(`${process.env.CARTEIRA_URL}/carteira/liberar`, { bloqueioId })
+          }
           socket.emit('lance_rejeitado', { motivo: 'race_condition' })
           return
         }
@@ -98,6 +120,25 @@ module.exports = function leilaoSocket(io) {
           'INSERT INTO lances (leilao_id, usuario_id, valor) VALUES ($1, $2, $3)',
           [leilaoId, userId, valor]
         )
+
+        // Salva bloqueioId no Redis e libera o ex-líder
+        if (carteiraEnabled && bloqueioId) {
+          await redis.set(`bloqueio:${leilaoId}:${userId}`, bloqueioId)
+
+          const exLider = leilao.vencedor_id
+          if (exLider && exLider !== userId) {
+            const bloqueioAnterior = await redis.get(`bloqueio:${leilaoId}:${exLider}`)
+            if (bloqueioAnterior) {
+              try {
+                await axios.post(`${process.env.CARTEIRA_URL}/carteira/liberar`, {
+                  bloqueioId: bloqueioAnterior
+                })
+              } catch (err) {
+                console.error('Erro ao liberar bloqueio do ex-líder:', err.message)
+              }
+            }
+          }
+        }
 
         // Atualiza Redis
         const novoEstado = {
