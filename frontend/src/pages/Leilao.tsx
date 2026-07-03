@@ -1,22 +1,121 @@
-import { Link, useLoaderData } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Navbar } from "@/components/navbar";
-import { bidHistory, formatBRL } from "@/lib/mock-data";
+import { formatBRL } from "@/lib/mock-data";
+import { getAuction } from "@/lib/api/leiloes";
 import { useCountdown } from "./Home";
 import { ChevronLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { io, Socket } from "socket.io-client";
+
+const WS_URL = import.meta.env.VITE_WS_URL || "http://localhost:3001";
 
 export default function AuctionPage() {
-  const { auction } = useLoaderData() as any;
-  const remaining = useCountdown(auction.endsAt);
-  const totalDuration = 15 * 60 * 1000;
-  const progress = Math.min(100, Math.max(0, (remaining.totalMs / totalDuration) * 100));
-  const isUrgent = remaining.totalMs < 5 * 60 * 1000;
+  const { id } = useParams()
+  const [auction, setAuction] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [bid, setBid] = useState<string>('0')
+  const [lances, setLances] = useState<any[]>([])
+  const [feedback, setFeedback] = useState<{ tipo: 'sucesso' | 'erro', msg: string } | null>(null)
+  const socketRef = useRef<Socket | null>(null)
 
-  const minBid = auction.currentBid + 10;
-  const [bid, setBid] = useState<string>(String(minBid));
+  // Busca dados iniciais
+  useEffect(() => {
+    getAuction(id!)
+      .then(data => {
+        setAuction(data)
+        setLances(data.lances || [])
+        setBid(String(parseFloat(data.lance_atual) + 10))
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [id])
 
-  // sync placeholder when auction changes
-  useEffect(() => setBid(String(minBid)), [minBid]);
+  // Conecta WebSocket
+  useEffect(() => {
+    if (!id) return
+    const token = localStorage.getItem('leilaovivo_token')
+    if (!token) return
+
+    const socket = io(WS_URL, { auth: { token } })
+    socketRef.current = socket
+
+    socket.on('connect', () => {
+      socket.emit('entrar_leilao', id)
+    })
+
+    socket.on('estado_atual', (estado: any) => {
+      setAuction((prev: any) => prev ? {
+        ...prev,
+        lance_atual: String(estado.lanceAtual),
+        vencedor_id: estado.vencedorId,
+        status: estado.status,
+      } : prev)
+    })
+
+    socket.on('lance_aceito', (dados: any) => {
+      setAuction((prev: any) => prev ? {
+        ...prev,
+        lance_atual: String(dados.valor),
+        vencedor_id: dados.usuarioId,
+      } : prev)
+      setBid(String(dados.valor + 10))
+      setLances(prev => [{
+        usuario_id: dados.usuarioId,
+        valor: String(dados.valor),
+        criado_em: dados.timestamp,
+      }, ...prev])
+    })
+
+    socket.on('lance_rejeitado', (dados: any) => {
+      const msgs: Record<string, string> = {
+        valor_insuficiente: 'Seu lance deve ser maior que o lance atual.',
+        saldo_insuficiente: 'Saldo insuficiente na carteira.',
+        leilao_encerrado: 'Este leilão já foi encerrado.',
+        race_condition: 'Outro lance foi aceito antes. Tente novamente.',
+      }
+      setFeedback({ tipo: 'erro', msg: msgs[dados.motivo] || 'Lance rejeitado.' })
+      setTimeout(() => setFeedback(null), 4000)
+    })
+
+    socket.on('leilao_encerrado', (dados: any) => {
+      setAuction((prev: any) => prev ? { ...prev, status: 'encerrado' } : prev)
+      setFeedback({ tipo: 'sucesso', msg: `Leilão encerrado! Vencedor com R$ ${dados.valorFinal}` })
+    })
+
+    socket.on('erro', (dados: any) => {
+      setFeedback({ tipo: 'erro', msg: dados.mensagem || 'Erro desconhecido.' })
+      setTimeout(() => setFeedback(null), 4000)
+    })
+
+    return () => { socket.disconnect() }
+  }, [id])
+
+  const darLance = () => {
+    const valor = parseFloat(bid)
+    if (!socketRef.current || isNaN(valor)) return
+    socketRef.current.emit('dar_lance', { leilaoId: id, valor })
+  }
+
+  const endsAt = auction ? new Date(auction.encerra_em).getTime() : 0
+  const remaining = useCountdown(endsAt)
+  const totalDuration = 15 * 60 * 1000
+  const progress = Math.min(100, Math.max(0, (remaining.totalMs / totalDuration) * 100))
+  const isUrgent = remaining.totalMs < 5 * 60 * 1000 && remaining.totalMs > 0
+  const encerrado = auction?.status !== 'ativo' || remaining.totalMs === 0
+
+  if (loading) return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      <p className="p-8 text-muted-foreground">Carregando...</p>
+    </div>
+  )
+
+  if (!auction) return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      <p className="p-8 text-muted-foreground">Leilão não encontrado.</p>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-background">
@@ -30,38 +129,31 @@ export default function AuctionPage() {
           Voltar para leilões
         </Link>
 
+        {feedback && (
+          <div className={`mb-4 rounded-md px-4 py-3 text-sm font-medium ${
+            feedback.tipo === 'sucesso'
+              ? 'bg-green-50 text-green-700 border border-green-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}>
+            {feedback.msg}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-          {/* Left column */}
           <div className="lg:col-span-2">
             <div className="overflow-hidden rounded-lg border border-border bg-card">
               <div className="flex aspect-[4/3] items-center justify-center bg-muted text-sm text-muted-foreground">
                 Imagem do item
               </div>
             </div>
-
             <h1 className="mt-6 text-3xl font-semibold tracking-tight text-foreground">
-              {auction.title}
+              {auction.titulo}
             </h1>
-
-            <div className="mt-3 flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-soft text-xs font-semibold text-teal">
-                {auction.seller
-                  .split(" ")
-                  .map((n: string) => n[0])
-                  .join("")
-                  .slice(0, 2)}
-              </div>
-              <span className="text-sm text-muted-foreground">
-                Vendido por <span className="font-medium text-foreground">{auction.seller}</span>
-              </span>
-            </div>
-
             <p className="mt-5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              {auction.description}
+              {auction.descricao}
             </p>
           </div>
 
-          {/* Right column */}
           <aside className="lg:col-span-1">
             <div className="sticky top-24 space-y-4">
               <div className="rounded-lg border border-border bg-card p-6">
@@ -69,10 +161,10 @@ export default function AuctionPage() {
                   Lance atual
                 </div>
                 <div className="mt-1 text-4xl font-bold text-primary">
-                  {formatBRL(auction.currentBid)}
+                  {formatBRL(parseFloat(auction.lance_atual))}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Seu lance deve ser maior que {formatBRL(auction.currentBid)}
+                  Seu lance deve ser maior que {formatBRL(parseFloat(auction.lance_atual))}
                 </p>
 
                 <div className="mt-6">
@@ -80,95 +172,78 @@ export default function AuctionPage() {
                     <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Tempo restante
                     </span>
-                    <span
-                      className={`font-mono text-2xl font-bold tabular-nums ${
-                        isUrgent ? "text-danger" : "text-foreground"
-                      }`}
-                    >
-                      {remaining.label}
+                    <span className={`font-mono text-2xl font-bold tabular-nums ${isUrgent ? "text-red-500" : "text-foreground"}`}>
+                      {encerrado ? 'Encerrado' : remaining.label}
                     </span>
                   </div>
                   <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                     <div
-                      className={`h-full transition-all duration-1000 ${
-                        isUrgent ? "bg-danger" : "bg-primary"
-                      }`}
+                      className={`h-full transition-all duration-1000 ${isUrgent ? "bg-red-500" : "bg-primary"}`}
                       style={{ width: `${progress}%` }}
                     />
                   </div>
                 </div>
 
-                <div className="mt-6">
-                  <label className="mb-1.5 block text-sm font-medium text-foreground">
-                    Seu lance (R$)
-                  </label>
-                  <input
-                    type="number"
-                    value={bid}
-                    onChange={(e) => setBid(e.target.value)}
-                    placeholder={String(minBid)}
-                    className="h-11 w-full rounded-md border border-border bg-background px-3 text-base font-semibold text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
+                {!encerrado && (
+                  <>
+                    <div className="mt-6">
+                      <label className="mb-1.5 block text-sm font-medium text-foreground">
+                        Seu lance (R$)
+                      </label>
+                      <input
+                        type="number"
+                        value={bid}
+                        onChange={(e) => setBid(e.target.value)}
+                        className="h-11 w-full rounded-md border border-border bg-background px-3 text-base font-semibold text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                    <button
+                      onClick={darLance}
+                      className="mt-3 h-12 w-full rounded-md bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                    >
+                      Dar lance
+                    </button>
+                  </>
+                )}
 
-                <button className="mt-3 h-12 w-full rounded-md bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
-                  Dar lance
-                </button>
-
-                <p className="mt-3 text-center text-xs text-muted-foreground">
-                  Saldo disponível: <span className="font-medium text-foreground">R$ 660,00</span> ·
-                  Saldo bloqueado: <span className="font-medium text-foreground">R$ 0,00</span>
-                </p>
+                {encerrado && (
+                  <div className="mt-6 rounded-md bg-muted px-4 py-3 text-center text-sm text-muted-foreground">
+                    Este leilão foi encerrado.
+                  </div>
+                )}
               </div>
             </div>
           </aside>
         </div>
 
-        {/* Bid history */}
         <section className="mt-12">
           <h2 className="mb-4 text-lg font-semibold text-foreground">Histórico de lances</h2>
           <div className="overflow-hidden rounded-lg border border-border bg-card">
             <ul className="divide-y divide-border">
-              {bidHistory.map((b, i) => (
-                <li
-                  key={i}
-                  className={`flex items-center justify-between px-5 py-4 ${
-                    b.latest ? "border-l-2 border-l-primary bg-primary-soft/30" : ""
-                  }`}
-                >
+              {lances.map((b: any, i: number) => (
+                <li key={i} className={`flex items-center justify-between px-5 py-4 ${i === 0 ? 'border-l-2 border-l-primary' : ''}`}>
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                      {b.user
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
+                      {b.usuario_id.slice(0, 2).toUpperCase()}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground">{b.user}</span>
-                        {b.outbid && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-                            Superado
-                          </span>
-                        )}
-                        {b.latest && (
-                          <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase text-primary">
-                            Maior lance
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{b.ago}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(b.criado_em).toLocaleTimeString('pt-BR')}
                     </div>
                   </div>
-                  <div className={`font-semibold ${b.latest ? "text-primary" : "text-foreground"}`}>
-                    {formatBRL(b.value)}
+                  <div className={`font-semibold ${i === 0 ? 'text-primary' : 'text-foreground'}`}>
+                    {formatBRL(parseFloat(b.valor))}
                   </div>
                 </li>
               ))}
+              {lances.length === 0 && (
+                <li className="px-5 py-6 text-center text-sm text-muted-foreground">
+                  Nenhum lance ainda. Seja o primeiro!
+                </li>
+              )}
             </ul>
           </div>
         </section>
       </main>
     </div>
-  );
+  )
 }

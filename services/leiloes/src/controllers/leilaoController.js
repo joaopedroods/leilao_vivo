@@ -75,4 +75,19 @@ async function criarLeilao(req, res) {
   }
 }
 
-module.exports = { listarLeiloes, buscarLeilao, criarLeilao, setIO }
+async function meusLeiloes(req, res) {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM leiloes WHERE vendedor_id = $1 ORDER BY criado_em DESC`,
+      [req.userId]
+    )
+    res.json(result.rows)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'erro_interno' })
+  }
+}
+
+module.exports = { listarLeiloes, buscarLeilao, criarLeilao, meusLeiloes, setIO }
+
+module.exports = { listarLeiloes, buscarLeilao, criarLeilao, setIO, meusLeiloes }

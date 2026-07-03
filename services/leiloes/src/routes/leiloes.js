@@ -4,10 +4,12 @@ const {
   listarLeiloes,
   buscarLeilao,
   criarLeilao,
+  meusLeiloes,
 } = require('../controllers/leilaoController')
 
-router.get('/leiloes',        listarLeiloes)
-router.get('/:id',     buscarLeilao)
-router.post('/leiloes', auth, criarLeilao)
+router.get('/',    listarLeiloes)
+router.get('/:id', buscarLeilao)
+router.post('/', auth, criarLeilao)
+router.get('/meus', auth, meusLeiloes)
 
 module.exports = router

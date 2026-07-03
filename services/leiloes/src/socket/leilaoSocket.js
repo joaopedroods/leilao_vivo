@@ -53,6 +53,16 @@ module.exports = function leilaoSocket(io) {
     })
 
     socket.on('dar_lance', async ({ leilaoId, valor }) => {
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!leilaoId || !UUID_REGEX.test(leilaoId)) {
+        socket.emit('erro', { mensagem: 'leilao_invalido' })
+        return
+      }
+      if (!valor || isNaN(valor) || valor <= 0) {
+        socket.emit('erro', { mensagem: 'valor_invalido' })
+        return
+      }
+
       const userId = socket.userId
 
       try {

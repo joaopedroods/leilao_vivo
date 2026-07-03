@@ -4,11 +4,8 @@ const API_URL = import.meta.env.VITE_API_URL;
 
 export const getAuctions = async (): Promise<Auction[]> => {
   try {
-    // Mantendo a rota original que o NGINX aceita
-    const response = await fetch(`${API_URL}/leiloes/leiloes`);
-    
+    const response = await fetch(`${API_URL}/leiloes/`);
     if (!response.ok) throw new Error(`Erro: ${response.status}`);
-    
     const data = await response.json();
     return data.map((item: any): Auction => ({
       id: item.id,
@@ -25,13 +22,18 @@ export const getAuctions = async (): Promise<Auction[]> => {
   }
 };
 
+export const getAuction = async (id: string) => {
+  const response = await fetch(`${API_URL}/leiloes/${id}`);
+  if (!response.ok) throw new Error(`Erro: ${response.status}`);
+  return response.json();
+};
+
 export const criarLeilao = async (dados: { title: string; description: string; initialBid: number; duracaoMinutos: number; }) => {
-  // Tente o MESMO caminho que você usa na getAuctions
-  const response = await fetch(`${API_URL}/leiloes/leiloes`, {
+  const response = await fetch(`${API_URL}/leiloes/`, {
     method: "POST",
-    headers: { 
-      "Content-Type": "application/json", 
-      "Authorization": `Bearer ${localStorage.getItem("leilaovivo_token")}` 
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${localStorage.getItem("leilaovivo_token")}`
     },
     body: JSON.stringify({
       titulo: dados.title,
@@ -40,7 +42,6 @@ export const criarLeilao = async (dados: { title: string; description: string; i
       duracao_minutos: dados.duracaoMinutos,
     }),
   });
-  
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.mensagem || "Erro ao criar leilão");
